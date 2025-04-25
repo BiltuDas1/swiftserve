@@ -1,4 +1,4 @@
-package com.github.biltudas1.swiftserve;
+package com.github.biltudas1.swiftserve.blockchain;
 
 import java.nio.charset.StandardCharsets;
 
@@ -7,12 +7,22 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
+/**
+ * Interface for passing ActionData Related Types
+ */
+interface ActionData {
+}
+
+/**
+ * BlockData record refers to the common block data, which always exist into
+ * all blocks into the blockchain
+ */
 final record BlockData(
     long blockNumber,
     String previousBlockHash,
     long creationTime,
     String actionType,
-    String actionData,
+    ActionData actionData,
     String creatorIP,
     String signature) {
 }
@@ -36,8 +46,8 @@ public final class Block {
   private String json;
   private static ObjectMapper mapper = new ObjectMapper();
 
-  Block(long blockNumber, String previousBlockHash, String actionType, String actionData, String creatorIP,
-      String signature) {
+  public Block(long blockNumber, String previousBlockHash, String actionType, ActionData actionData, String creatorIP,
+      String signature) throws IllegalArgumentException {
     this.data = new BlockData(
         blockNumber,
         previousBlockHash,
@@ -46,6 +56,12 @@ public final class Block {
         actionData,
         creatorIP,
         signature);
+
+    // If the instance is actionType is another type rather than we need as input
+    if (!(Node.class.isInstance(actionData) || File.class.isInstance(actionData))) {
+      throw new IllegalArgumentException("invalid type of actionData: " + actionData.getClass().getName());
+    }
+
     this.hash = generateHash(); // This should be at last because it store the hash of current block
   }
 

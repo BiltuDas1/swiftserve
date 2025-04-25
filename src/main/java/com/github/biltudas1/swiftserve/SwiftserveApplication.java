@@ -6,6 +6,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.github.biltudas1.swiftserve.blockchain.Block;
+import com.github.biltudas1.swiftserve.blockchain.Node;
+
 final record Response(Boolean status, String message) {
 }
 
@@ -17,9 +20,9 @@ public class SwiftserveApplication {
 	}
 
 	@GetMapping("/")
-	public String root() {
-		Block blk = new Block(0, "abcd", "add_node", "data-some", "127.0.0.1", "no-signature");
-		return blk.getHash();
+	public Record root() {
+		Block blk = new Block(0, "abcd", "add_node", new Node("127.0.0.1"), "127.0.0.1", "no-signature");
+		return blk.toRecord();
 	}
 
 	@GetMapping("/download")
