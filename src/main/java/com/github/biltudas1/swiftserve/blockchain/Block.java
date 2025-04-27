@@ -111,7 +111,7 @@ public final class Block {
    * 
    * @return Record object containing the data of block
    */
-  public final Record toRecord() {
+  public final BlockData toRecord() {
     return this.data;
   }
 
