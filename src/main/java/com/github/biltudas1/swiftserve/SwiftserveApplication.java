@@ -1,35 +1,71 @@
 package com.github.biltudas1.swiftserve;
 
+import java.io.File;
+import java.io.IOException;
+import java.security.InvalidKeyException;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.NoSuchAlgorithmException;
+import java.security.SignatureException;
+
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.github.biltudas1.swiftserve.blockchain.Block;
+import com.github.biltudas1.swiftserve.blockchain.Blockchain;
+import com.github.biltudas1.swiftserve.blockchain.Key;
 import com.github.biltudas1.swiftserve.blockchain.Node;
-
-final record Response(Boolean status, String message) {
-}
 
 @SpringBootApplication
 @RestController
 public class SwiftserveApplication {
-	public static void main(String[] args) {
+	private static Key key;
+	private static Blockchain chain;
+
+	/**
+	 * Generates/Loads Private and Public key of this machine
+	 * 
+	 * @return Key object containing the Private and Public key
+	 * @throws NoSuchAlgorithmException
+	 * @throws IOException
+	 */
+	private static Key getKey() throws NoSuchAlgorithmException, IOException {
+		File kp = new File("localKey.pem");
+		Key key;
+
+		if (kp.exists() && kp.isFile()) {
+			key = new Key();
+			key.loadKey("localKey.pem");
+		} else {
+			KeyPairGenerator kpg = KeyPairGenerator.getInstance("Ed25519");
+			KeyPair keypair = kpg.generateKeyPair();
+			key = new Key(keypair);
+			key.saveKey("localKey.pem");
+		}
+
+		return key;
+	}
+
+	public static void main(String[] args) throws NoSuchAlgorithmException, IOException, InvalidKeyException,
+			SignatureException {
+		SwiftserveApplication.key = SwiftserveApplication.getKey();
+		Block genesis = new Block(0, "", "add_node", new Node(""), "127.0.0.1",
+				SwiftserveApplication.key.getPrivateKeyRaw());
+		SwiftserveApplication.chain = new Blockchain(genesis); // Added genesis block to the blockchain
 		SpringApplication.run(SwiftserveApplication.class, args);
 	}
 
 	@GetMapping("/")
-	public Record root() {
-		Block blk = new Block(0, "abcd", "add_node", new Node("127.0.0.1"), "127.0.0.1", "no-signature");
-		return blk.toRecord();
+	public void root() {
 	}
 
-	@GetMapping("/download")
-	public Response hello(@RequestParam(value = "file", defaultValue = "") String name) {
-		if (name.isBlank()) {
-			return new Response(false, "Please provide a filename");
-		}
-		return new Response(true, String.format("Downloading %s!", name));
+	@GetMapping(value = "/key.pem", produces = MediaType.TEXT_PLAIN_VALUE)
+	public String getPublicKeyOfNode()
+			throws NoSuchAlgorithmException, IOException {
+		return "-----BEGIN PUBLIC KEY-----\n" + SwiftserveApplication.key.getPublicKey() + "\n-----END PUBLIC KEY-----";
 	}
+
 }

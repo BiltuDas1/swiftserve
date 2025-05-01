@@ -1,6 +1,11 @@
 package com.github.biltudas1.swiftserve.blockchain;
 
+import java.io.IOException;
+import java.nio.file.FileSystemException;
+import java.security.InvalidKeyException;
 import java.security.InvalidParameterException;
+import java.security.NoSuchAlgorithmException;
+import java.security.SignatureException;
 import java.util.ArrayList;
 
 /**
@@ -28,7 +33,8 @@ public class Blockchain {
    * @param block
    * @throws InvalidParameterException
    */
-  public final void add(Block block) throws InvalidParameterException {
+  public final void add(Block block) throws InvalidParameterException, NoSuchAlgorithmException, FileSystemException,
+      IOException, InterruptedException, InvalidKeyException, SignatureException {
     BlockData blockData = block.toRecord();
     // If the added block number is lastblocknumber + 1
     if (!(blockData.blockNumber() == (this.lastBlockNumber() + 1))) {
@@ -47,6 +53,11 @@ public class Blockchain {
     }
 
     // Verifying the signature
+    Key key = new Key();
+    key.getKey(blockData.creatorIP(), 80);
+    if (!block.verifySignature(key.getPublicKeyRaw())) {
+      throw new InvalidParameterException("block signature verification failed: signature not matched");
+    }
 
     this.topBlockData = block.toRecord();
     this.blocks.add(block);
