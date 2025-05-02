@@ -14,10 +14,13 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.github.biltudas1.swiftserve.blockchain.Block;
 import com.github.biltudas1.swiftserve.blockchain.Blockchain;
 import com.github.biltudas1.swiftserve.blockchain.Key;
 import com.github.biltudas1.swiftserve.blockchain.Node;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 
 @SpringBootApplication
 @RestController
@@ -52,7 +55,7 @@ public class SwiftserveApplication {
 	public static void main(String[] args) throws NoSuchAlgorithmException, IOException, InvalidKeyException,
 			SignatureException {
 		SwiftserveApplication.key = SwiftserveApplication.getKey();
-		Block genesis = new Block(0, "", "add_node", new Node(""), "127.0.0.1",
+		Block genesis = new Block(0, "0", "add_node", new Node(""), "127.0.0.1",
 				SwiftserveApplication.key.getPrivateKeyRaw());
 		SwiftserveApplication.chain = new Blockchain(genesis); // Added genesis block to the blockchain
 		SpringApplication.run(SwiftserveApplication.class, args);
@@ -60,6 +63,15 @@ public class SwiftserveApplication {
 
 	@GetMapping("/")
 	public void root() {
+	}
+
+	@PostMapping("/addBlock")
+	public boolean addBlock(@RequestBody byte[] block)
+			throws NoSuchAlgorithmException, InvalidKeyException, SignatureException, JsonProcessingException, IOException,
+			ClassNotFoundException, InterruptedException {
+		Block newBlock = new Block(block);
+		SwiftserveApplication.chain.add(newBlock);
+		return true;
 	}
 
 	@GetMapping(value = "/key.pem", produces = MediaType.TEXT_PLAIN_VALUE)

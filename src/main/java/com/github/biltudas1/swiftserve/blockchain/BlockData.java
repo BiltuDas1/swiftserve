@@ -1,9 +1,11 @@
 package com.github.biltudas1.swiftserve.blockchain;
 
+import java.io.Serializable;
+
 /**
  * Interface for passing ActionData Related Types
  */
-interface ActionData {
+interface ActionData extends Serializable {
 }
 
 /**
@@ -16,7 +18,7 @@ final public record BlockData(
     long creationTime,
     String actionType,
     ActionData actionData,
-    String creatorIP) {
+    String creatorIP) implements Serializable {
 
   public BlockData {
     if (!(previousBlockHash.matches("^[0-9a-fA-F]+$"))) {

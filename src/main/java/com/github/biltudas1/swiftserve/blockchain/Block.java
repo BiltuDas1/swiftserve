@@ -1,5 +1,10 @@
 package com.github.biltudas1.swiftserve.blockchain;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.nio.charset.StandardCharsets;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -35,13 +40,15 @@ import java.util.Base64;
 public final class Block {
   private final BlockData data;
   private final String hash;
-  private String json;
-  private byte[] signature;
+  private final byte[] signature;
+  private final String json;
+  private final byte[] bytes;
   private static ObjectMapper mapper = new ObjectMapper();
 
   public Block(long blockNumber, String previousBlockHash, String actionType, ActionData actionData, String creatorIP,
       PrivateKey key)
-      throws IllegalArgumentException, NoSuchAlgorithmException, InvalidKeyException, SignatureException {
+      throws IllegalArgumentException, NoSuchAlgorithmException, InvalidKeyException, SignatureException,
+      JsonProcessingException, IOException {
     this.data = new BlockData(
         blockNumber,
         previousBlockHash,
@@ -55,8 +62,61 @@ public final class Block {
       throw new IllegalArgumentException("invalid type of actionData: " + actionData.getClass().getName());
     }
 
+    this.json = Block.mapper.writeValueAsString(this.data);
     this.signature = this.Sign(key);
     this.hash = generateHash(); // This should be at last because it store the hash of current block
+
+    this.bytes = this.convertToBytes(); // This should be end of this scope
+  }
+
+  public Block(byte[] bytes)
+      throws IllegalArgumentException, NoSuchAlgorithmException, InvalidKeyException, SignatureException,
+      JsonProcessingException, IOException, ClassNotFoundException {
+    ByteArrayOutputStream dataBytes = new ByteArrayOutputStream();
+    ByteArrayOutputStream hashBytes = new ByteArrayOutputStream();
+    ByteArrayOutputStream signatureBytes = new ByteArrayOutputStream();
+
+    ByteArrayOutputStream current = null;
+    for (byte b : bytes) {
+      if (b == 23) {
+        // If End of Transmission block received then stop traversing
+        break;
+      } else if (b == 2) {
+        // If start of the text encounter then choose which block is empty, then start
+        // storing in it
+        if (dataBytes.size() == 0) {
+          current = dataBytes;
+        } else if (hashBytes.size() == 0) {
+          current = hashBytes;
+        } else {
+          current = signatureBytes;
+        }
+        continue;
+      } else if (b == 3) {
+        // If end of the block encounter, then skip the block
+        continue;
+      } else {
+        if (current != null) {
+          current.write(b);
+        }
+      }
+    }
+    current = null;
+
+    // Loading this.data
+    ByteArrayInputStream bais = new ByteArrayInputStream(dataBytes.toByteArray());
+    ObjectInputStream ois = new ObjectInputStream(bais);
+    this.data = (BlockData) ois.readObject();
+    ois.close();
+    this.json = Block.mapper.writeValueAsString(this.data);
+
+    // Loading this.hash
+    this.hash = new String(hashBytes.toByteArray(), StandardCharsets.UTF_8);
+
+    // Loading this.signature
+    this.signature = signatureBytes.toByteArray();
+
+    this.bytes = bytes; // This should be end of this scope
   }
 
   /**
@@ -85,16 +145,6 @@ public final class Block {
    * @return String object containing the data of block
    */
   public final String toString() {
-    if (this.json != null && !this.json.isBlank()) {
-      return this.json;
-    }
-
-    // If json converstion not possible then return empty string
-    try {
-      this.json = Block.mapper.writeValueAsString(this.data);
-    } catch (JsonProcessingException e) {
-      this.json = new String();
-    }
     return this.json;
   }
 
@@ -169,4 +219,50 @@ public final class Block {
     return verifier.verify(this.signature);
   }
 
+  /**
+   * This method converts the object to bytes
+   * 
+   * @return bytearray containing all the data of the object
+   * @throws IOException
+   */
+  private final byte[] convertToBytes() throws IOException {
+    ByteArrayOutputStream data = new ByteArrayOutputStream();
+
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    ObjectOutputStream oos = new ObjectOutputStream(baos);
+    oos.writeObject(this.data);
+    oos.close();
+
+    // Loading this.data into bytearray
+    data.write(2);
+    data.write(baos.toByteArray());
+    data.write(3);
+
+    // Loading this.hash into bytearray
+    data.write(2);
+    data.write(this.hash.getBytes(StandardCharsets.UTF_8));
+    data.write(3);
+
+    // Loading this.signature into bytearray
+    data.write(2);
+    data.write(this.signature);
+    data.write(3);
+
+    data.write(23);
+    byte[] result = data.toByteArray();
+    data.close();
+    return result;
+  }
+
+  /**
+   * This method returns the byte format of this class, It allows to easily
+   * transfer the block data from one place to another. The byte array contains
+   * the data, hash, and the signature, One followed by another.
+   * 
+   * @return Bytearry contains the byte version of this class
+   * @throws IOException
+   */
+  public final byte[] toBytes() throws IOException {
+    return this.bytes;
+  }
 }
