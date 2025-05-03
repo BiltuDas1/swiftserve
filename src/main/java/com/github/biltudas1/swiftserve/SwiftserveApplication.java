@@ -3,10 +3,13 @@ package com.github.biltudas1.swiftserve;
 import java.io.File;
 import java.io.IOException;
 import java.security.InvalidKeyException;
+import java.security.InvalidParameterException;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 import java.security.SignatureException;
+import java.util.ArrayList;
+import java.util.Random;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -19,14 +22,18 @@ import com.github.biltudas1.swiftserve.blockchain.Block;
 import com.github.biltudas1.swiftserve.blockchain.Blockchain;
 import com.github.biltudas1.swiftserve.blockchain.Key;
 import com.github.biltudas1.swiftserve.blockchain.Node;
+
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 
 @SpringBootApplication
 @RestController
 public class SwiftserveApplication {
 	private static Key key;
 	private static Blockchain chain;
+	private static NodeList nodes;
+	private static String currentNodeIP;
 
 	/**
 	 * Generates/Loads Private and Public key of this machine
@@ -35,7 +42,7 @@ public class SwiftserveApplication {
 	 * @throws NoSuchAlgorithmException
 	 * @throws IOException
 	 */
-	private static Key getKey() throws NoSuchAlgorithmException, IOException {
+	private final static Key getKey() throws NoSuchAlgorithmException, IOException {
 		File kp = new File("localKey.pem");
 		Key key;
 
@@ -52,10 +59,23 @@ public class SwiftserveApplication {
 		return key;
 	}
 
+	/**
+	 * Picks a random Item from an array
+	 * 
+	 * @param <T>   Can Accept any kind of Object
+	 * @param array The ArrayList containing the objects
+	 * @return Object which is randomly picked
+	 */
+	public final static <T> T getRandom(ArrayList<T> array) {
+		int rnd = new Random().nextInt(array.size());
+		return array.get(rnd);
+	}
+
 	public static void main(String[] args) throws NoSuchAlgorithmException, IOException, InvalidKeyException,
 			SignatureException {
 		SwiftserveApplication.key = SwiftserveApplication.getKey();
-		Block genesis = new Block(0, "0", "add_node", new Node(""), "127.0.0.1",
+		SwiftserveApplication.currentNodeIP = "127.0.0.1";
+		Block genesis = new Block(0, "0", "add_node", new Node(""), SwiftserveApplication.currentNodeIP,
 				SwiftserveApplication.key.getPrivateKeyRaw());
 		SwiftserveApplication.chain = new Blockchain(genesis); // Added genesis block to the blockchain
 		SpringApplication.run(SwiftserveApplication.class, args);
@@ -70,8 +90,74 @@ public class SwiftserveApplication {
 			throws NoSuchAlgorithmException, InvalidKeyException, SignatureException, JsonProcessingException, IOException,
 			ClassNotFoundException, InterruptedException {
 		Block newBlock = new Block(block);
-		SwiftserveApplication.chain.add(newBlock);
+		try {
+			SwiftserveApplication.chain.add(newBlock);
+
+			String actionType = newBlock.toRecord().actionType();
+			if (actionType.equals("add_node")) {
+				nodes.add(((Node) newBlock.toRecord().actionData()).nodeIP());
+			} else if (actionType.equals("remove_node")) {
+				nodes.remove(((Node) newBlock.toRecord().actionData()).nodeIP());
+			}
+
+		} catch (InvalidParameterException e) {
+			if (e.getMessage().equals("new block previousBlockHash is different from the top of the block hash")) {
+				ArrayList<String> mostCommonHashNodes = NodeList.mostMatchedHashNodes(
+						SwiftserveApplication.nodes.randomPicks((int) Math.sqrt(nodes.size())), 8080,
+						SwiftserveApplication.chain.lastBlockNumber());
+
+				// If the current node have the most common hash
+				if (mostCommonHashNodes.contains(SwiftserveApplication.currentNodeIP)) {
+					return false;
+				}
+
+				// Picking random node and copy the blockchain data
+				for (int i = 0; i < 5; i++) {
+					String pickedNode = SwiftserveApplication.getRandom(mostCommonHashNodes);
+					try {
+						long collidedBlockNumber = SwiftserveApplication.chain.collidedBlock(pickedNode, 8080);
+						byte[] data = NodeList.getBlocksData(pickedNode, 8080, collidedBlockNumber);
+						SwiftserveApplication.chain.loadBlocksData(data, collidedBlockNumber);
+					} catch (Exception e1) {
+						e1.printStackTrace();
+						continue;
+					}
+					break;
+				}
+
+				// Now adding the new block to the chain
+				SwiftserveApplication.chain.add(newBlock);
+			}
+		}
+
+		// Telling nearest two peers about the block
+		// Logic is not implemented yet
+
 		return true;
+	}
+
+	@GetMapping(value = "/getHash", produces = MediaType.TEXT_PLAIN_VALUE)
+	public String getBlockHash(@RequestParam long num) {
+		try {
+			return chain.getBlockHash(num);
+		} catch (IndexOutOfBoundsException e) {
+			return "";
+		}
+	}
+
+	@GetMapping(value = "/topBlockNumber", produces = MediaType.TEXT_PLAIN_VALUE)
+	public long getTopBlockNumber(@RequestParam(defaultValue = "") String param) {
+		return SwiftserveApplication.chain.lastBlockNumber();
+	}
+
+	@GetMapping(value = "/totalBlocks", produces = MediaType.TEXT_PLAIN_VALUE)
+	public long getTotalBlocksCount(@RequestParam(defaultValue = "") String param) {
+		return SwiftserveApplication.chain.size();
+	}
+
+	@PostMapping(value = "/getBlockDatas", produces = MediaType.TEXT_PLAIN_VALUE)
+	public byte[] getBlockDatas(@RequestBody long blockNum) throws IOException {
+		return SwiftserveApplication.chain.getBlocksData(blockNum);
 	}
 
 	@GetMapping(value = "/key.pem", produces = MediaType.TEXT_PLAIN_VALUE)

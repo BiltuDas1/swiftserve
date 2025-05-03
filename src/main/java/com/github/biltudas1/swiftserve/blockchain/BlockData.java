@@ -3,12 +3,6 @@ package com.github.biltudas1.swiftserve.blockchain;
 import java.io.Serializable;
 
 /**
- * Interface for passing ActionData Related Types
- */
-interface ActionData extends Serializable {
-}
-
-/**
  * BlockData record refers to the common block data, which always exist into
  * all blocks into the blockchain
  */
