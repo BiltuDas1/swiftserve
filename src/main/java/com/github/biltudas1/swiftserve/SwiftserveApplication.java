@@ -38,22 +38,23 @@ public class SwiftserveApplication {
 	/**
 	 * Generates/Loads Private and Public key of this machine
 	 * 
+	 * @param filepath The path where the key file will be stored for future use
 	 * @return Key object containing the Private and Public key
 	 * @throws NoSuchAlgorithmException
 	 * @throws IOException
 	 */
-	private final static Key getKey() throws NoSuchAlgorithmException, IOException {
-		File kp = new File("localKey.pem");
+	private final static Key getKey(String filepath) throws NoSuchAlgorithmException, IOException {
+		File kp = new File(filepath);
 		Key key;
 
 		if (kp.exists() && kp.isFile()) {
 			key = new Key();
-			key.loadKey("localKey.pem");
+			key.loadKey(filepath);
 		} else {
 			KeyPairGenerator kpg = KeyPairGenerator.getInstance("Ed25519");
 			KeyPair keypair = kpg.generateKeyPair();
 			key = new Key(keypair);
-			key.saveKey("localKey.pem");
+			key.saveKey(filepath);
 		}
 
 		return key;
@@ -73,7 +74,7 @@ public class SwiftserveApplication {
 
 	public static void main(String[] args) throws NoSuchAlgorithmException, IOException, InvalidKeyException,
 			SignatureException {
-		SwiftserveApplication.key = SwiftserveApplication.getKey();
+		SwiftserveApplication.key = SwiftserveApplication.getKey("localkey.pem");
 		SwiftserveApplication.currentNodeIP = "127.0.0.1";
 		Block genesis = new Block(0, "0", "add_node", new Node(""), SwiftserveApplication.currentNodeIP,
 				SwiftserveApplication.key.getPrivateKeyRaw());
