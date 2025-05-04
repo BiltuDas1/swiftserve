@@ -112,7 +112,8 @@ public class SwiftserveApplication {
 				}
 
 				// Picking random node and copy the blockchain data
-				for (int i = 0; i < 5; i++) {
+				int i = 0;
+				for (; i < 5; i++) {
 					String pickedNode = SwiftserveApplication.getRandom(mostCommonHashNodes);
 					try {
 						long collidedBlockNumber = SwiftserveApplication.chain.collidedBlock(pickedNode, 8080);
@@ -125,13 +126,28 @@ public class SwiftserveApplication {
 					break;
 				}
 
+				// If no nodes found to copy the blockchain, then avoid the transaction
+				if (i >= 5) {
+					return false;
+				}
 				// Now adding the new block to the chain
 				SwiftserveApplication.chain.add(newBlock);
 			}
 		}
 
-		// Telling nearest two peers about the block
-		// Logic is not implemented yet
+		// Telling nearest random 4 nodes about the new block (max)
+		String[] nodes;
+		if (SwiftserveApplication.nodes.size() > 4) {
+			nodes = SwiftserveApplication.nodes.randomPicks(4);
+		} else {
+			nodes = SwiftserveApplication.nodes.randomPicks(SwiftserveApplication.nodes.size());
+		}
+
+		// Sending the block to othe r nodes
+		for (String nodeIP : nodes) {
+			SendBlock send = new SendBlock(nodeIP, 8080, newBlock);
+			Thread.startVirtualThread(send);
+		}
 
 		return true;
 	}

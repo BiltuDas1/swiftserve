@@ -259,7 +259,7 @@ public final class Block {
    * transfer the block data from one place to another. The byte array contains
    * the data, hash, and the signature, One followed by another.
    * 
-   * @return Bytearry contains the byte version of this class
+   * @return Bytearray contains the byte version of this class
    * @throws IOException
    */
   public final byte[] toBytes() throws IOException {
