@@ -32,7 +32,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 public class SwiftserveApplication {
 	private static Key key;
 	private static Blockchain chain;
-	private static NodeList nodes;
+	private static NodeList nodes = new NodeList();
+	private static FileList files = new FileList();
 	private static String currentNodeIP;
 
 	/**
@@ -94,15 +95,10 @@ public class SwiftserveApplication {
 		try {
 			SwiftserveApplication.chain.add(newBlock);
 
-			String actionType = newBlock.toRecord().actionType();
-			if (actionType.equals("add_node")) {
-				nodes.add(((Node) newBlock.toRecord().actionData()).nodeIP());
-			} else if (actionType.equals("remove_node")) {
-				nodes.remove(((Node) newBlock.toRecord().actionData()).nodeIP());
-			}
-
 		} catch (InvalidParameterException e) {
-			if (e.getMessage().equals("new block previousBlockHash is different from the top of the block hash")) {
+			if (e.getMessage().equals("new block previousBlockHash is different from the top of the block hash") || e
+					.getMessage().contains("blockNumber can only be")
+					|| e.getMessage().equals("new block can't be created before the top of the block")) {
 				ArrayList<String> mostCommonHashNodes = NodeList.mostMatchedHashNodes(
 						SwiftserveApplication.nodes.randomPicks((int) Math.sqrt(nodes.size())), 8080,
 						SwiftserveApplication.chain.lastBlockNumber());
@@ -133,7 +129,24 @@ public class SwiftserveApplication {
 				}
 				// Now adding the new block to the chain
 				SwiftserveApplication.chain.add(newBlock);
+			} else if (e.getMessage().equals("block signature verification failed: signature not matched")) {
+				// Reject the block from adding to the blockchain
+				return false;
 			}
+		}
+
+		String actionType = newBlock.toRecord().actionType();
+		if (actionType.equals("add_node")) {
+			SwiftserveApplication.nodes.add(((Node) newBlock.toRecord().actionData()).nodeIP());
+		} else if (actionType.equals("remove_node")) {
+			SwiftserveApplication.nodes.remove(((Node) newBlock.toRecord().actionData()).nodeIP());
+		} else if (actionType.equals("add_file")) {
+			String filename = ((com.github.biltudas1.swiftserve.blockchain.File) newBlock.toRecord().actionData()).filename();
+			String filehash = ((com.github.biltudas1.swiftserve.blockchain.File) newBlock.toRecord().actionData()).filehash();
+			SwiftserveApplication.files.add(filename, filehash, newBlock.toRecord().creatorIP());
+		} else if (actionType.equals("remove_file")) {
+			String filename = ((com.github.biltudas1.swiftserve.blockchain.File) newBlock.toRecord().actionData()).filename();
+			SwiftserveApplication.files.remove(filename);
 		}
 
 		// Telling nearest random 4 nodes about the new block (max)
