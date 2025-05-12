@@ -5,6 +5,7 @@ package com.github.biltudas1.swiftserve.blockchain;
  * 'add_file', 'remove_file'
  */
 public final record File(
-    String filename,
-    String filehash) implements ActionData {
+        String filename,
+        String filehash,
+        long filesize) implements ActionData {
 }

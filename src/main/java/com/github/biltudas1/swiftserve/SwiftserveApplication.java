@@ -1,7 +1,9 @@
 package com.github.biltudas1.swiftserve;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.security.InvalidKeyException;
 import java.security.InvalidParameterException;
 import java.security.KeyPair;
@@ -11,10 +13,19 @@ import java.security.SignatureException;
 import java.util.ArrayList;
 import java.util.Random;
 
+import org.springframework.core.io.Resource;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -22,10 +33,6 @@ import com.github.biltudas1.swiftserve.blockchain.Block;
 import com.github.biltudas1.swiftserve.blockchain.Blockchain;
 import com.github.biltudas1.swiftserve.blockchain.Key;
 import com.github.biltudas1.swiftserve.blockchain.Node;
-
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestParam;
 
 @SpringBootApplication
 @RestController
@@ -35,6 +42,9 @@ public class SwiftserveApplication {
 	private static NodeList nodes = new NodeList();
 	private static FileList files = new FileList();
 	private static String currentNodeIP;
+	private static String savePath;
+
+	public static int remainingPeersToKnowAboutChunk = 4;
 
 	/**
 	 * Generates/Loads Private and Public key of this machine
@@ -77,6 +87,7 @@ public class SwiftserveApplication {
 			SignatureException {
 		SwiftserveApplication.key = SwiftserveApplication.getKey("localkey.pem");
 		SwiftserveApplication.currentNodeIP = "127.0.0.1";
+		SwiftserveApplication.savePath = System.getProperty("user.dir") + "/downloads";
 		Block genesis = new Block(0, "0", "add_node", new Node(""), SwiftserveApplication.currentNodeIP,
 				SwiftserveApplication.key.getPrivateKeyRaw());
 		SwiftserveApplication.chain = new Blockchain(genesis); // Added genesis block to the blockchain
@@ -143,10 +154,11 @@ public class SwiftserveApplication {
 		} else if (actionType.equals("add_file")) {
 			String filename = ((com.github.biltudas1.swiftserve.blockchain.File) newBlock.toRecord().actionData()).filename();
 			String filehash = ((com.github.biltudas1.swiftserve.blockchain.File) newBlock.toRecord().actionData()).filehash();
-			SwiftserveApplication.files.add(filename, filehash, newBlock.toRecord().creatorIP());
+			long filesize = ((com.github.biltudas1.swiftserve.blockchain.File) newBlock.toRecord().actionData()).filesize();
+			SwiftserveApplication.files.add(filehash, filename, newBlock.toRecord().creatorIP(), filesize);
 		} else if (actionType.equals("remove_file")) {
-			String filename = ((com.github.biltudas1.swiftserve.blockchain.File) newBlock.toRecord().actionData()).filename();
-			SwiftserveApplication.files.remove(filename);
+			String filehash = ((com.github.biltudas1.swiftserve.blockchain.File) newBlock.toRecord().actionData()).filehash();
+			SwiftserveApplication.files.remove(filehash);
 		}
 
 		// Telling nearest random 4 nodes about the new block (max)
@@ -157,7 +169,7 @@ public class SwiftserveApplication {
 			nodes = SwiftserveApplication.nodes.randomPicks(SwiftserveApplication.nodes.size());
 		}
 
-		// Sending the block to othe r nodes
+		// Sending the block to other nodes
 		for (String nodeIP : nodes) {
 			SendBlock send = new SendBlock(nodeIP, 8080, newBlock);
 			Thread.startVirtualThread(send);
@@ -188,6 +200,105 @@ public class SwiftserveApplication {
 	@PostMapping(value = "/getBlockDatas", produces = MediaType.TEXT_PLAIN_VALUE)
 	public byte[] getBlockDatas(@RequestBody long blockNum) throws IOException {
 		return SwiftserveApplication.chain.getBlocksData(blockNum);
+	}
+
+	@PostMapping(value = "/tellAboutChunk", produces = MediaType.TEXT_PLAIN_VALUE)
+	public boolean startDownloadChunk(@RequestBody byte[] chunkData)
+			throws IOException, InterruptedException, NoSuchAlgorithmException {
+		ChunkInfo chunk = ChunkInfo.fromBytes(chunkData);
+
+		// Check if the chunk is already downloaded, if yes then skip
+		if (SwiftserveApplication.files.isFileExist(chunk.filehash())
+				&& SwiftserveApplication.files.getFileInfo(chunk.filehash()).isChunkHashExists(chunk.sha1())) {
+			return true;
+		}
+
+		// Trying to download the file, if failed then try max 3 times
+		int retry = 0;
+		for (; retry < 3; retry++) {
+			FileList.downloadChunk(chunk.nodeIP(), chunk.port(), chunk.filehash(), chunk.chunkNumber(),
+					SwiftserveApplication.savePath); // Downloading and saving the chunk
+
+			// Verifying the Chunk
+			if (FileList.verifyChunk(SwiftserveApplication.savePath, chunk.filehash(), chunk.chunkNumber(), chunk.sha1())) {
+				break;
+			}
+		}
+
+		// Try max limit excedded
+		if (retry == 3) {
+			File ff = new File(
+					SwiftserveApplication.savePath + "/chunk/" + chunk.filehash() + "/" + chunk.chunkNumber() + ".part");
+			if (ff.exists() && ff.isFile()) {
+				ff.delete();
+			}
+			return false;
+		}
+
+		// File downloaded successfully
+		if (!SwiftserveApplication.files.isFileExist(chunk.filehash())) {
+			return false;
+		}
+		SwiftserveApplication.files.getFileInfo(chunk.filehash()).addChunkHash(chunk.sha1());
+
+		// If all chunks are downloaded, if yes then start combining them
+		long totalFiles = FileList.totalDownloadedChunks(chunk.filehash(), SwiftserveApplication.savePath);
+		if (totalFiles == chunk.totalChunks()) {
+			// Combining the chunks
+			FileList.combineFiles(SwiftserveApplication.files.getFileName(chunk.filehash()),
+					SwiftserveApplication.savePath + "/chunks/" + chunk.filehash());
+		}
+
+		// Tell 4 random peers (max) that a new chunk has been downloaded
+		int totalPeers = SwiftserveApplication.remainingPeersToKnowAboutChunk;
+		while (SwiftserveApplication.remainingPeersToKnowAboutChunk != 0) {
+			if (totalPeers == SwiftserveApplication.remainingPeersToKnowAboutChunk) {
+				if (SwiftserveApplication.remainingPeersToKnowAboutChunk > SwiftserveApplication.nodes.size()) {
+					SwiftserveApplication.remainingPeersToKnowAboutChunk = SwiftserveApplication.nodes.size();
+				}
+			}
+			String[] nodes = SwiftserveApplication.nodes.randomPicks(SwiftserveApplication.remainingPeersToKnowAboutChunk);
+
+			// Sending the block to other nodes
+			for (String nodeIP : nodes) {
+				TellNode cnk = new TellNode(nodeIP, 8080, chunk.chunkNumber(), chunk.totalChunks(), chunk.sha1(),
+						SwiftserveApplication.currentNodeIP, 8080, chunk.filehash());
+				Thread.startVirtualThread(cnk);
+			}
+
+			// Waiting for 1 Minute if some tasks are remaining, and again retry
+			if (SwiftserveApplication.remainingPeersToKnowAboutChunk > 0) {
+				Thread.sleep(60 * 1000);
+			}
+		}
+		SwiftserveApplication.remainingPeersToKnowAboutChunk = 4; // Reset back to 4 peers
+
+		return true;
+	}
+
+	@GetMapping(value = "/getChunk")
+	public ResponseEntity<Resource> downloadChunk(@RequestParam String filehash, long number) {
+		File file = new File(SwiftserveApplication.savePath + "/chunks/" + filehash + "/" + number);
+		if (!file.exists() || !file.isFile()) {
+			return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+		}
+
+		try {
+			InputStream inputStream = new FileInputStream(file);
+			InputStreamResource resource = new InputStreamResource(inputStream);
+
+			HttpHeaders headers = new HttpHeaders();
+			headers.setContentDisposition(
+					ContentDisposition.attachment().filename(filehash + "-" + file.getName() + ".part").build());
+
+			return ResponseEntity.ok()
+					.headers(headers)
+					.contentLength(file.length())
+					.contentType(MediaType.APPLICATION_OCTET_STREAM)
+					.body(resource);
+		} catch (IOException e) {
+			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+		}
 	}
 
 	@GetMapping(value = "/key.pem", produces = MediaType.TEXT_PLAIN_VALUE)

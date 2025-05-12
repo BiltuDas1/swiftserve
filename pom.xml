@@ -18,6 +18,11 @@
 		<license/>
 	</licenses>
 	<developers>
+		<developer>
+			<id>biltudas1</id>
+			<name>Biswajit Das</name>
+			<email>billionto@gmail.com</email>
+		</developer>
 		<developer/>
 	</developers>
 	<scm>
